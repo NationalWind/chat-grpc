@@ -1,207 +1,128 @@
 package main
 
 import (
+	"bufio"
 	"context"
-	"errors"
 	"fmt"
 	"log"
-	"net"
-	"sync"
+	"os"
+	"strings"
 	"time"
 
-	pb "chat-grpc/chat-grpc/proto"
+	pb "chat-grpc/proto"
 
 	"google.golang.org/grpc"
 )
 
-type clientSession struct {
-	username string
-	send     chan *pb.ChatMessage
-}
-
-// Server implementation
-type chatServer struct {
-	pb.UnimplementedChatServiceServer
-	mu      sync.RWMutex
-	clients map[string]*clientSession
-	groups  map[string]map[string]bool // groupName -> set of usernames
-}
-
-func newServer() *chatServer {
-	return &chatServer{
-		clients: make(map[string]*clientSession),
-		groups:  make(map[string]map[string]bool),
+func main() {
+	if len(os.Args) < 2 {
+		fmt.Println("Usage: client <username>")
+		return
 	}
-}
-
-// Register unary
-func (s *chatServer) Register(ctx context.Context, req *pb.RegisterRequest) (*pb.RegisterResponse, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if req.Username == "" {
-		return &pb.RegisterResponse{Ok: false, Message: "empty username"}, nil
-	}
-	if _, exists := s.clients[req.Username]; exists {
-		return &pb.RegisterResponse{Ok: false, Message: "username already used"}, nil
-	}
-	// Note: we don't create session here; session created when client opens ChatStream
-	return &pb.RegisterResponse{Ok: true, Message: "registered (now open ChatStream)"}, nil
-}
-
-// List users
-func (s *chatServer) ListUsers(ctx context.Context, _ *pb.Empty) (*pb.ListUsersResponse, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	resp := &pb.ListUsersResponse{}
-	for name := range s.clients {
-		resp.Users = append(resp.Users, &pb.UserInfo{Username: name})
-	}
-	return resp, nil
-}
-
-func (s *chatServer) CreateGroup(ctx context.Context, req *pb.CreateGroupRequest) (*pb.CreateGroupResponse, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if req.GroupName == "" {
-		return &pb.CreateGroupResponse{Ok: false, Message: "empty group name"}, nil
-	}
-	if _, ok := s.groups[req.GroupName]; ok {
-		return &pb.CreateGroupResponse{Ok: false, Message: "group exists"}, nil
-	}
-	s.groups[req.GroupName] = make(map[string]bool)
-	for _, m := range req.Members {
-		s.groups[req.GroupName][m] = true
-	}
-	return &pb.CreateGroupResponse{Ok: true, Message: "group created"}, nil
-}
-
-func (s *chatServer) JoinGroup(ctx context.Context, req *pb.JoinGroupRequest) (*pb.JoinGroupResponse, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, ok := s.groups[req.GroupName]; !ok {
-		s.groups[req.GroupName] = make(map[string]bool)
-	}
-	s.groups[req.GroupName][req.Username] = true
-	return &pb.JoinGroupResponse{Ok: true, Message: "joined"}, nil
-}
-
-// ChatStream bi-directional
-func (s *chatServer) ChatStream(stream pb.ChatService_ChatStreamServer) error {
-	// First message from client should be a "connect" with from=username and type maybe "connect"
-	// But for simplicity let's require client to first send a ChatMessage with from set.
-	// We'll read first message to know username.
-
-	// Receive initial message to establish username
-	initMsg, err := stream.Recv()
+	username := os.Args[1]
+	conn, err := grpc.Dial("localhost:50051", grpc.WithInsecure())
 	if err != nil {
-		return err
+		log.Fatalf("dial: %v", err)
 	}
-	username := initMsg.From
-	if username == "" {
-		return errors.New("must send initial message with From=username")
+	defer conn.Close()
+	client := pb.NewChatServiceClient(conn)
+
+	// Optional: register (unary)
+	reg, err := client.Register(context.Background(), &pb.RegisterRequest{Username: username})
+	if err != nil || !reg.Ok {
+		log.Fatalf("register failed: %v %v", reg, err)
+	}
+	fmt.Println("Registered:", reg.Message)
+
+	// open ChatStream
+	stream, err := client.ChatStream(context.Background())
+	if err != nil {
+		log.Fatalf("open stream: %v", err)
 	}
 
-	// create session
-	sess := &clientSession{
-		username: username,
-		send:     make(chan *pb.ChatMessage, 100),
+	// send initial connect message
+	init := &pb.ChatMessage{From: username, Type: "connect", Text: ""}
+	if err := stream.Send(init); err != nil {
+		log.Fatalf("send init: %v", err)
 	}
 
-	// register client
-	s.mu.Lock()
-	if _, exists := s.clients[username]; exists {
-		s.mu.Unlock()
-		return fmt.Errorf("username %s already connected", username)
-	}
-	s.clients[username] = sess
-	s.mu.Unlock()
-
-	// start goroutine to send messages to client
+	// goroutine: receive messages from server
 	go func() {
-		for msg := range sess.send {
-			if err := stream.Send(msg); err != nil {
-				log.Printf("send error to %s: %v", username, err)
+		for {
+			in, err := stream.Recv()
+			if err != nil {
+				log.Printf("recv error: %v", err)
 				return
+			}
+			// display
+			ts := time.Unix(in.Timestamp, 0).Format("15:04:05")
+			if in.Type == "private" {
+				fmt.Printf("[%s][PM][%s -> you]: %s\n", ts, in.From, in.Text)
+			} else if in.Type == "group" {
+				fmt.Printf("[%s][GROUP %s][%s]: %s\n", ts, in.To, in.From, in.Text)
+			} else {
+				fmt.Printf("[%s][%s]: %s\n", ts, in.From, in.Text)
 			}
 		}
 	}()
 
-	// If initial message also contains payload (not just connect), handle it
-	if initMsg.Text != "" {
-		initMsg.Timestamp = time.Now().Unix()
-		s.handleIncoming(initMsg)
-	}
-
-	// read loop
+	// read stdin commands
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Println("Commands:")
+	fmt.Println("/pm <user> <message>  -- private message")
+	fmt.Println("/group <group> <message> -- send to group")
+	fmt.Println("/create_group <group>  -- create group (via unary)")
+	fmt.Println("/join_group <group>  -- join group (via unary)")
 	for {
-		msg, err := stream.Recv()
-		if err != nil {
-			// stream closed or error -> cleanup
-			log.Printf("client %s disconnected: %v", username, err)
-			s.removeClient(username)
-			return nil
+		line, _ := reader.ReadString('\n')
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
 		}
-		msg.Timestamp = time.Now().Unix()
-		s.handleIncoming(msg)
-	}
-}
-
-func (s *chatServer) removeClient(username string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if c, ok := s.clients[username]; ok {
-		close(c.send)
-	}
-	delete(s.clients, username)
-	// Optionally remove from groups or keep membership
-	for g := range s.groups {
-		delete(s.groups[g], username)
-	}
-}
-
-func (s *chatServer) handleIncoming(msg *pb.ChatMessage) {
-	switch msg.Type {
-	case "private":
-		s.mu.RLock()
-		target, ok := s.clients[msg.To]
-		s.mu.RUnlock()
-		if ok {
-			target.send <- msg
-		} else {
-			log.Printf("user %s offline, cannot deliver private msg to %s", msg.From, msg.To)
-		}
-	case "group":
-		s.mu.RLock()
-		members, ok := s.groups[msg.To]
-		clientsSnapshot := make(map[string]*clientSession)
-		if ok {
-			for member := range members {
-				if member == msg.From {
-					continue
-				}
-				if c, online := s.clients[member]; online {
-					clientsSnapshot[member] = c
-				}
+		if strings.HasPrefix(line, "/pm ") {
+			parts := strings.SplitN(line, " ", 3)
+			if len(parts) < 3 {
+				fmt.Println("usage /pm <user> <message>")
+				continue
 			}
+			msg := &pb.ChatMessage{
+				From: username, To: parts[1], Type: "private", Text: parts[2], Timestamp: time.Now().Unix(),
+			}
+			if err := stream.Send(msg); err != nil {
+				fmt.Println("send error:", err)
+			}
+		} else if strings.HasPrefix(line, "/group ") {
+			parts := strings.SplitN(line, " ", 3)
+			if len(parts) < 3 {
+				fmt.Println("usage /group <group> <message>")
+				continue
+			}
+			msg := &pb.ChatMessage{
+				From: username, To: parts[1], Type: "group", Text: parts[2], Timestamp: time.Now().Unix(),
+			}
+			if err := stream.Send(msg); err != nil {
+				fmt.Println("send error:", err)
+			}
+		} else if strings.HasPrefix(line, "/create_group ") {
+			parts := strings.SplitN(line, " ", 2)
+			grp := parts[1]
+			_, err := client.CreateGroup(context.Background(), &pb.CreateGroupRequest{GroupName: grp})
+			if err != nil {
+				fmt.Println("create group err:", err)
+			} else {
+				fmt.Println("group created:", grp)
+			}
+		} else if strings.HasPrefix(line, "/join_group ") {
+			parts := strings.SplitN(line, " ", 2)
+			grp := parts[1]
+			_, err := client.JoinGroup(context.Background(), &pb.JoinGroupRequest{GroupName: grp, Username: username})
+			if err != nil {
+				fmt.Println("join group err:", err)
+			} else {
+				fmt.Println("joined group:", grp)
+			}
+		} else {
+			fmt.Println("unknown command")
 		}
-		s.mu.RUnlock()
-		for _, c := range clientsSnapshot {
-			c.send <- msg
-		}
-	default:
-		log.Printf("unknown msg type: %s", msg.Type)
-	}
-}
-
-func main() {
-	lis, err := net.Listen("tcp", ":50051")
-	if err != nil {
-		log.Fatalf("failed to listen: %v", err)
-	}
-	grpcSrv := grpc.NewServer()
-	pb.RegisterChatServiceServer(grpcSrv, newServer())
-	log.Println("server listening :50051")
-	if err := grpcSrv.Serve(lis); err != nil {
-		log.Fatalf("serve error: %v", err)
 	}
 }

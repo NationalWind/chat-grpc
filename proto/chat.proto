@@ -1,7 +1,7 @@
 syntax = "proto3";
 
 package chat;
-option go_package = "chat-grpc/proto;proto";
+option go_package = "/proto;proto";
 
 message Empty {}
 

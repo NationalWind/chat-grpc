@@ -572,7 +572,7 @@ const file_proto_chat_proto_rawDesc = "" +
 	"\vCreateGroup\x12\x18.chat.CreateGroupRequest\x1a\x19.chat.CreateGroupResponse\x12<\n" +
 	"\tJoinGroup\x12\x16.chat.JoinGroupRequest\x1a\x17.chat.JoinGroupResponse\x126\n" +
 	"\n" +
-	"ChatStream\x12\x11.chat.ChatMessage\x1a\x11.chat.ChatMessage(\x010\x01B\x17Z\x15chat-grpc/proto;protob\x06proto3"
+	"ChatStream\x12\x11.chat.ChatMessage\x1a\x11.chat.ChatMessage(\x010\x01B\x0eZ\f/proto;protob\x06proto3"
 
 var (
 	file_proto_chat_proto_rawDescOnce sync.Once
