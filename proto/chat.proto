@@ -1,0 +1,69 @@
+syntax = "proto3";
+
+package chat;
+option go_package = "chat-grpc/proto;proto";
+
+message Empty {}
+
+message RegisterRequest {
+  string username = 1;
+}
+
+message RegisterResponse {
+  bool ok = 1;
+  string message = 2;
+}
+
+message UserInfo {
+  string username = 1;
+}
+
+message ListUsersResponse {
+  repeated UserInfo users = 1;
+}
+
+message CreateGroupRequest {
+  string group_name = 1;
+  repeated string members = 2; // optional initial members
+}
+
+message CreateGroupResponse {
+  bool ok = 1;
+  string message = 2;
+}
+
+message JoinGroupRequest {
+  string group_name = 1;
+  string username = 2;
+}
+
+message JoinGroupResponse {
+  bool ok = 1;
+  string message = 2;
+}
+
+/*
+Chat message from client to server or server to client.
+type: "private" or "group"
+to: target username (if private) or group_name (if group)
+from: sender username
+text: body
+timestamp: server fills if needed
+*/
+message ChatMessage {
+  string from = 1;
+  string to = 2;
+  string type = 3; // "private" or "group"
+  string text = 4;
+  int64 timestamp = 5;
+}
+
+service ChatService {
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+  rpc ListUsers(Empty) returns (ListUsersResponse);
+  rpc CreateGroup(CreateGroupRequest) returns (CreateGroupResponse);
+  rpc JoinGroup(JoinGroupRequest) returns (JoinGroupResponse);
+
+  // Bi-directional stream for real-time chat
+  rpc ChatStream(stream ChatMessage) returns (stream ChatMessage);
+}
