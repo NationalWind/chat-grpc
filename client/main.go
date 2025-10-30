@@ -62,7 +62,6 @@ func main() {
 			log.Fatalf("register failed: %v", err)
 		}
 		log.Printf("Registration successful: %s", res.Message)
-		fmt.Println("Registered:", res.Message)
 	} else {
 		log.Printf("Attempting to login user: %s", username)
 		res, err := client.Login(context.Background(), &pb.LoginRequest{Username: username, Password: password})
@@ -70,7 +69,6 @@ func main() {
 			log.Fatalf("login failed: %v", err)
 		}
 		log.Println("Login successful")
-		fmt.Println("Login success!")
 	}
 
 	// Open ChatStream
