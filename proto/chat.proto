@@ -7,6 +7,7 @@ message Empty {}
 
 message RegisterRequest {
   string username = 1;
+  string password = 2;
 }
 
 message RegisterResponse {
@@ -42,14 +43,16 @@ message JoinGroupResponse {
   string message = 2;
 }
 
-/*
-Chat message from client to server or server to client.
-type: "private" or "group"
-to: target username (if private) or group_name (if group)
-from: sender username
-text: body
-timestamp: server fills if needed
-*/
+message LoginRequest {
+  string username = 1;
+  string password = 2;
+}
+
+message LoginResponse {
+  bool ok = 1;
+  string message = 2;
+}
+
 message ChatMessage {
   string from = 1;
   string to = 2;
@@ -60,10 +63,9 @@ message ChatMessage {
 
 service ChatService {
   rpc Register(RegisterRequest) returns (RegisterResponse);
+  rpc Login(LoginRequest) returns (LoginResponse);
   rpc ListUsers(Empty) returns (ListUsersResponse);
   rpc CreateGroup(CreateGroupRequest) returns (CreateGroupResponse);
   rpc JoinGroup(JoinGroupRequest) returns (JoinGroupResponse);
-
-  // Bi-directional stream for real-time chat
   rpc ChatStream(stream ChatMessage) returns (stream ChatMessage);
 }

@@ -12,41 +12,61 @@ import (
 	pb "chat-grpc/proto"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 func main() {
-	if len(os.Args) < 2 {
-		fmt.Println("Usage: client <username>")
-		return
-	}
-	username := os.Args[1]
-	conn, err := grpc.Dial("localhost:50051", grpc.WithInsecure())
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Println("Welcome to gRPC Chat!")
+	fmt.Println("1) Register")
+	fmt.Println("2) Login")
+	fmt.Print("Choose: ")
+	choice, _ := reader.ReadString('\n')
+	choice = strings.TrimSpace(choice)
+
+	fmt.Print("Enter username: ")
+	username, _ := reader.ReadString('\n')
+	username = strings.TrimSpace(username)
+
+	fmt.Print("Enter password: ")
+	password, _ := reader.ReadString('\n')
+	password = strings.TrimSpace(password)
+
+	conn, err := grpc.NewClient("localhost:50051", grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
-		log.Fatalf("dial: %v", err)
+		log.Fatalf("failed to create client: %v", err)
 	}
 	defer conn.Close()
 	client := pb.NewChatServiceClient(conn)
 
-	// Optional: register (unary)
-	reg, err := client.Register(context.Background(), &pb.RegisterRequest{Username: username})
-	if err != nil || !reg.Ok {
-		log.Fatalf("register failed: %v %v", reg, err)
+	// Xử lý Register hoặc Login dựa trên choice
+	if choice == "1" {
+		res, err := client.Register(context.Background(), &pb.RegisterRequest{Username: username, Password: password})
+		if err != nil || !res.Ok {
+			log.Fatalf("register failed: %v", err)
+		}
+		fmt.Println("Registered:", res.Message)
+	} else {
+		res, err := client.Login(context.Background(), &pb.LoginRequest{Username: username, Password: password})
+		if err != nil || !res.Ok {
+			log.Fatalf("login failed: %v", err)
+		}
+		fmt.Println("Login success!")
 	}
-	fmt.Println("Registered:", reg.Message)
 
-	// open ChatStream
+	// Open ChatStream
 	stream, err := client.ChatStream(context.Background())
 	if err != nil {
 		log.Fatalf("open stream: %v", err)
 	}
 
-	// send initial connect message
+	// Send initial connect message
 	init := &pb.ChatMessage{From: username, Type: "connect", Text: ""}
 	if err := stream.Send(init); err != nil {
 		log.Fatalf("send init: %v", err)
 	}
 
-	// goroutine: receive messages from server
+	// Goroutine: receive messages from server
 	go func() {
 		for {
 			in, err := stream.Recv()
@@ -54,25 +74,26 @@ func main() {
 				log.Printf("recv error: %v", err)
 				return
 			}
-			// display
+			// Display message
 			ts := time.Unix(in.Timestamp, 0).Format("15:04:05")
-			if in.Type == "private" {
+			switch in.Type {
+			case "private":
 				fmt.Printf("[%s][PM][%s -> you]: %s\n", ts, in.From, in.Text)
-			} else if in.Type == "group" {
+			case "group":
 				fmt.Printf("[%s][GROUP %s][%s]: %s\n", ts, in.To, in.From, in.Text)
-			} else {
+			default:
 				fmt.Printf("[%s][%s]: %s\n", ts, in.From, in.Text)
 			}
 		}
 	}()
 
-	// read stdin commands
-	reader := bufio.NewReader(os.Stdin)
-	fmt.Println("Commands:")
+	fmt.Println("\nCommands:")
 	fmt.Println("/pm <user> <message>  -- private message")
 	fmt.Println("/group <group> <message> -- send to group")
 	fmt.Println("/create_group <group>  -- create group (via unary)")
 	fmt.Println("/join_group <group>  -- join group (via unary)")
+
+	// Read stdin commands
 	for {
 		line, _ := reader.ReadString('\n')
 		line = strings.TrimSpace(line)
@@ -86,7 +107,11 @@ func main() {
 				continue
 			}
 			msg := &pb.ChatMessage{
-				From: username, To: parts[1], Type: "private", Text: parts[2], Timestamp: time.Now().Unix(),
+				From:      username,
+				To:        parts[1],
+				Type:      "private",
+				Text:      parts[2],
+				Timestamp: time.Now().Unix(),
 			}
 			if err := stream.Send(msg); err != nil {
 				fmt.Println("send error:", err)
@@ -98,13 +123,21 @@ func main() {
 				continue
 			}
 			msg := &pb.ChatMessage{
-				From: username, To: parts[1], Type: "group", Text: parts[2], Timestamp: time.Now().Unix(),
+				From:      username,
+				To:        parts[1],
+				Type:      "group",
+				Text:      parts[2],
+				Timestamp: time.Now().Unix(),
 			}
 			if err := stream.Send(msg); err != nil {
 				fmt.Println("send error:", err)
 			}
 		} else if strings.HasPrefix(line, "/create_group ") {
 			parts := strings.SplitN(line, " ", 2)
+			if len(parts) < 2 {
+				fmt.Println("usage /create_group <group>")
+				continue
+			}
 			grp := parts[1]
 			_, err := client.CreateGroup(context.Background(), &pb.CreateGroupRequest{GroupName: grp})
 			if err != nil {
@@ -114,6 +147,10 @@ func main() {
 			}
 		} else if strings.HasPrefix(line, "/join_group ") {
 			parts := strings.SplitN(line, " ", 2)
+			if len(parts) < 2 {
+				fmt.Println("usage /join_group <group>")
+				continue
+			}
 			grp := parts[1]
 			_, err := client.JoinGroup(context.Background(), &pb.JoinGroupRequest{GroupName: grp, Username: username})
 			if err != nil {
