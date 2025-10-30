@@ -116,6 +116,7 @@ func main() {
 	fmt.Println("/join_group <group>  -- join group")
 	fmt.Println("/my_groups  -- list of your groups")
 	fmt.Println("/list_users  -- list of online users")
+	fmt.Println("/search <query>  -- search users (fuzzy search)")
 
 	// Read stdin commands
 	for {
@@ -231,6 +232,44 @@ func main() {
 							fmt.Printf("  - %s (you)\n", u.Username)
 						} else {
 							fmt.Printf("  - %s\n", u.Username)
+						}
+					}
+				}
+			}
+		} else if strings.HasPrefix(line, "/search ") {
+			parts := strings.SplitN(line, " ", 2)
+			if len(parts) < 2 {
+				fmt.Println("usage /search <query>")
+				continue
+			}
+			query := parts[1]
+			logger.Printf("Searching users with query: %s", query)
+			res, err := client.SearchUsers(context.Background(), &pb.SearchUsersRequest{
+				Query: query,
+				Limit: 20,
+			})
+			if err != nil {
+				logger.Printf("Error searching users: %v", err)
+				fmt.Println("search err:", err)
+			} else {
+				logger.Printf("Search returned %d results", len(res.Users))
+				if len(res.Users) == 0 {
+					fmt.Printf("No users found matching '%s'\n", query)
+				} else {
+					fmt.Printf("Search results for '%s' (%d users):\n", query, len(res.Users))
+					for _, u := range res.Users {
+						onlineStatus := "offline"
+						if u.IsOnline {
+							onlineStatus = "online"
+						}
+						displayName := u.DisplayName
+						if displayName == "" {
+							displayName = u.Username
+						}
+						if u.Username == username {
+							fmt.Printf("  - %s (%s) [%s] (you)\n", u.Username, displayName, onlineStatus)
+						} else {
+							fmt.Printf("  - %s (%s) [%s]\n", u.Username, displayName, onlineStatus)
 						}
 					}
 				}

@@ -14,9 +14,11 @@
 4. [Kiến trúc hệ thống](#4-kiến-trúc-hệ-thống)
 5. [Chi tiết thiết kế](#5-chi-tiết-thiết-kế)
 6. [Các tính năng](#6-các-tính-năng)
-7. [File log](#7-file-log)
-8. [Video demo](#8-video-demo)
-9. [Đánh giá và kết luận](#9-đánh-giá-và-kết-luận)
+7. [Testing](#7-testing)
+8. [File log](#8-file-log)
+9. [Video demo](#9-video-demo)
+10. [Đánh giá và phân công](#10-đánh-giá-và-phân-công)
+11. [Phụ lục](#11-phụ-lục)
 
 ---
 
@@ -32,13 +34,19 @@
 - Nhiều người dùng đăng ký, đăng nhập và chat với nhau
 - Chat riêng tư 1-1 giữa 2 người dùng
 - Tạo nhóm chat và gửi tin nhắn broadcast trong nhóm
-- Lưu trữ dữ liệu persistent (users, groups, messages)
+- Lưu trữ dữ liệu persistent với PostgreSQL database
+- Tìm kiếm người dùng với fuzzy search (pg_trgm)
+- Bảo mật password với bcrypt hashing
+- Theo dõi trạng thái online/offline của người dùng
 
 ### 1.3. Công nghệ sử dụng
 - **Ngôn ngữ**: Go (Golang)
 - **Framework gRPC**: google.golang.org/grpc
 - **Protocol**: Protocol Buffers (protobuf)
-- **Storage**: JSON file-based storage
+- **Database**: PostgreSQL 13+
+- **ORM**: GORM (Go Object Relational Mapper)
+- **Authentication**: bcrypt password hashing
+- **Search**: PostgreSQL pg_trgm extension (Fuzzy Search)
 
 ---
 
@@ -47,13 +55,19 @@
 ### 2.1. Phần mềm cần thiết
 ```
 - Go version 1.20 trở lên
+- PostgreSQL 13+ (với pg_trgm extension)
 - Protocol Buffer Compiler (protoc)
 - Go plugins cho protoc:
   + protoc-gen-go
   + protoc-gen-go-grpc
 ```
 
-### 2.2. Cài đặt dependencies
+### 2.2. Cài đặt PostgreSQL -- need install docker
+```bash
+docker compose up -d 
+```
+
+### 2.3. Cài đặt Go dependencies
 ```bash
 # Cài đặt Go (nếu chưa có)
 # Download từ: https://golang.org/dl/
@@ -81,15 +95,16 @@ chat-grpc/
 │   ├── chat.pb.go          # Generated code
 │   └── chat_grpc.pb.go     # Generated gRPC code
 ├── server/
-│   └── server.go           # Server implementation
-│   └── server.log          # Server log file
+│   └── main.go             # Server implementation
+│   └── server.log          # Server log file (optional)
 ├── client/
-│   └── client.go           # Client implementation
-│   └── client.log          # Client log file
-├── data.json               # Persistent storage
+│   └── main.go             # Client implementation
+│   └── client.log          # Client log file (optional)
+├── database/
+│   └── database.go         # Database layer với GORM
 ├── go.mod
 ├── go.sum
-└── README.md
+└── README.md               # Document
 ```
 
 ### 3.2. Compile proto file
@@ -99,28 +114,39 @@ protoc --go_out=. --go-grpc_out=. proto/chat.proto
 
 ### 3.3. Chạy Server
 ```bash
+# Đảm bảo PostgreSQL đang chạy và database đã được tạo
+# Server sẽ tự động migrate schema khi khởi động
+
 # Terminal 1: Server
 cd server
-go run server.go
+go run main.go
+
+# Hoặc build binary
+go build -o server-bin main.go
+./server-bin
 ```
 
 ### 3.4. Chạy Client (ít nhất 5 clients)
 ```bash
 # Terminal 2: Client 1 (Alice)
 cd client
-go run client.go
+go run main.go
 
 # Terminal 3: Client 2 (Bob)
-go run client.go
+go run main.go
 
 # Terminal 4: Client 3 (Charlie)
-go run client.go
+go run main.go
 
 # Terminal 5: Client 4 (Diana)
-go run client.go
+go run main.go
 
 # Terminal 6: Client 5 (Eve)
-go run client.go
+go run main.go
+
+# Hoặc build binary
+go build -o client-bin main.go
+./client-bin
 ```
 
 ### 3.5. Flow đăng ký/đăng nhập
@@ -195,8 +221,9 @@ service ChatService {
   rpc CreateGroup(CreateGroupRequest) returns (CreateGroupResponse);
   rpc JoinGroup(JoinGroupRequest) returns (JoinGroupResponse);
   rpc ListUsers(Empty) returns (ListUsersResponse);
+  rpc SearchUsers(SearchUsersRequest) returns (SearchUsersResponse);
   rpc GetUserGroups(GetUserGroupsRequest) returns (GetUserGroupsResponse);
-  
+
   // Bidirectional Streaming RPC
   rpc ChatStream(stream ChatMessage) returns (stream ChatMessage);
 }
@@ -211,14 +238,39 @@ service ChatService {
 type chatServer struct {
     mu      sync.RWMutex
     clients map[string]*clientSession      // Online users
-    groups  map[string]map[string]bool     // Groups and members
 }
 
-// Persistent storage
-type ServerData struct {
-    Users    []User       `json:"users"`
-    Groups   []Group      `json:"groups"`
-    Messages []MessageLog `json:"messages"`
+// Database models (GORM)
+type User struct {
+    ID          uint      `gorm:"primaryKey"`
+    Username    string    `gorm:"uniqueIndex;size:50;not null"`
+    Password    string    `gorm:"size:255;not null"` // bcrypt hashed
+    DisplayName string    `gorm:"size:100"`
+    CreatedAt   time.Time
+    LastSeen    time.Time
+    IsOnline    bool      `gorm:"default:false;index"`
+}
+
+type Group struct {
+    ID        uint      `gorm:"primaryKey"`
+    Name      string    `gorm:"uniqueIndex;size:100;not null"`
+    CreatedAt time.Time
+}
+
+type GroupMember struct {
+    ID       uint      `gorm:"primaryKey"`
+    GroupID  uint      `gorm:"not null;index"`
+    Username string    `gorm:"size:50;not null;index"`
+    JoinedAt time.Time
+}
+
+type Message struct {
+    ID          uint      `gorm:"primaryKey"`
+    FromUser    string    `gorm:"size:50;not null;index"`
+    ToTarget    string    `gorm:"size:100;not null;index"`
+    MessageType string    `gorm:"size:20;not null;index"`
+    Text        string    `gorm:"type:text;not null"`
+    CreatedAt   time.Time
 }
 ```
 
@@ -226,6 +278,14 @@ type ServerData struct {
 - Sử dụng `sync.RWMutex` để đảm bảo thread-safety
 - Mỗi client connection có goroutine riêng để nhận/gửi messages
 - Channels được sử dụng cho communication giữa goroutines
+
+**Database Layer**:
+- Sử dụng GORM làm ORM layer
+- Auto-migration schema khi khởi động server
+- Connection pooling được quản lý bởi GORM
+- Prepared statements cho an toàn trước SQL injection
+- Indexes được tạo cho các trường thường xuyên query (username, is_online, group_id)
+- GIN index (pg_trgm) cho fuzzy search hiệu suất cao
 
 ### 5.3. Kiến trúc Client
 
@@ -260,9 +320,10 @@ Enter password: 123456
 ```
 
 **Tính năng**:
-- Kiểm tra username trùng lặp
-- Lưu password (trong thực tế nên hash)
-- Persistent storage vào `data.json`
+- Kiểm tra username trùng lặp trong database
+- Password được hash bằng bcrypt (chi phí = 10)
+- Lưu trữ persistent vào PostgreSQL database
+- Tự động tạo DisplayName = Username khi đăng ký
 
 ### 6.2. Chat riêng (Private Message)
 
@@ -330,7 +391,61 @@ Online users (5):
   - eve
 ```
 
-### 6.5. Danh sách commands
+### 6.5. Tìm kiếm người dùng (Fuzzy Search)
+
+**Cú pháp**:
+```bash
+/search <query>
+```
+
+**Ví dụ**:
+```bash
+# Tìm kiếm với từ khóa
+/search alice
+
+Search results for 'alice' (3 users):
+  - alice (alice) [online] (you)
+  - alice2023 (Alice Smith) [offline]
+  - alicia (Alicia Johnson) [online]
+
+# Tìm kiếm với tên gần giống
+/search bob
+
+Search results for 'bob' (2 users):
+  - bob (bob) [online]
+  - bobby (Bobby Tables) [offline]
+```
+
+**Tính năng**:
+- **Fuzzy matching** sử dụng PostgreSQL pg_trgm extension
+- Tìm kiếm trên cả `username` và `display_name`
+- Case-insensitive (không phân biệt hoa thường)
+- Partial matching (khớp một phần chuỗi)
+- Similarity score threshold = 0.3
+- Hiển thị trạng thái online/offline
+- Mặc định giới hạn 20 kết quả (có thể điều chỉnh)
+- Sắp xếp theo độ tương đồng (similarity score)
+
+**Chi tiết kỹ thuật**:
+```sql
+-- Fuzzy search query sử dụng trong database layer
+SELECT DISTINCT ON (username)
+    id, username, display_name, created_at, last_seen, is_online,
+    GREATEST(
+        similarity(LOWER(username), LOWER(?)),
+        similarity(LOWER(COALESCE(display_name, '')), LOWER(?))
+    ) as similarity_score
+FROM users
+WHERE
+    LOWER(username) LIKE LOWER(?) OR
+    LOWER(display_name) LIKE LOWER(?) OR
+    similarity(LOWER(username), LOWER(?)) > 0.3 OR
+    similarity(LOWER(COALESCE(display_name, '')), LOWER(?)) > 0.3
+ORDER BY username, similarity_score DESC, is_online DESC
+LIMIT ?
+```
+
+### 6.6. Danh sách commands
 
 | Command | Mô tả |
 |---------|-------|
@@ -340,6 +455,7 @@ Online users (5):
 | `/join_group <group>` | Tham gia nhóm |
 | `/my_groups` | Xem nhóm đã join |
 | `/list_users` | Xem users online |
+| `/search <query>` | Tìm kiếm người dùng (fuzzy search) |
 
 ---
 
@@ -403,7 +519,7 @@ Online users (5):
 
 ## 8. VIDEO DEMO
 
- **Link video demo**: [Thêm link YouTube/Google Drive ở đây]
+ **Link video demo**: [https://drive.google.com/file/d/1-j-xqcE8_6X7jowlN5yobDyoB92go3sD/view?usp=sharing]
 ---
 
 ## 9. ĐÁNH GIÁ VÀ PHÂN CÔNG
@@ -413,82 +529,135 @@ Online users (5):
 | Tính năng | Trạng thái | Phân công |
 |---------|-----------|---------|
 | **Server** |||
-| Đăng ký user | Hoàn thành | Trọng Nghĩa |
+| Đăng ký user với bcrypt | Hoàn thành | Trọng Nghĩa |
 | Danh sách online users | Hoàn thành | Quốc Phong |
 | Tạo nhóm chat | Hoàn thành | Quốc Phong |
 | Broadcast trong nhóm | Hoàn thành | Quốc Phong |
 | Chat riêng 1-1 | Hoàn thành | Quốc Phong |
+| Fuzzy search users | Hoàn thành | Trọng Nghĩa |
 | **Client** |||
-| Đăng ký/Đăng nhập | Hoàn thành | Trọng Nghĩa |
+| Đăng ký/Đăng nhập | Hoàn thành | Quốc Phong |
 | Gửi private message | Hoàn thành | Quốc Phong |
 | Gửi group message | Hoàn thành | Quốc Phong |
 | Join group | Hoàn thành | Quốc Phong |
+| Search command | Hoàn thành | Trọng Nghĩa |
+| **Database & Security** |||
+| PostgreSQL integration | Hoàn thành | Trọng Nghĩa |
+| GORM ORM layer | Hoàn thành | Trọng Nghĩa |
+| Password hashing (bcrypt) | Hoàn thành | Trọng Nghĩa |
+| Fuzzy search (pg_trgm) | Hoàn thành | Trọng Nghĩa |
+| User online status | Hoàn thành | Trọng Nghĩa |
 | **Khác** |||
-| Persistent storage | Hoàn thành | Trọng Nghĩa |
-| Log files | Hoàn thành | Trọng Nghĩa |
+| Log files | Hoàn thành | Quốc Phong |
 
 ### 9.2. Đánh giá
 
 Đồ án đã hoàn thành đầy đủ các yêu cầu:
-- Sử dụng gRPC cho inter-process communication
-- Implement đầy đủ tính năng chat riêng và chat nhóm
-- Hỗ trợ 5+ concurrent users
-- Có persistent storage
-- Có log files chi tiết
-- Code clean, dễ maintain
+- ✅ Sử dụng gRPC cho inter-process communication
+- ✅ Implement đầy đủ tính năng chat riêng và chat nhóm
+- ✅ Hỗ trợ 5+ concurrent users
+- ✅ Có persistent storage với PostgreSQL database
+- ✅ Có log files chi tiết (optional, có thể bật/tắt)
+- ✅ Code clean, dễ maintain với separation of concerns
+
+**Điểm nổi bật**:
+- 🔐 **Security**: Sử dụng bcrypt để hash password với cost factor = 10
+- 🔍 **Advanced Search**: Fuzzy search với PostgreSQL pg_trgm extension
+- 💾 **Database Design**: Schema được normalize với proper indexes
+- 📊 **ORM Integration**: Sử dụng GORM với auto-migration
+- 🟢 **Real-time Status**: Theo dõi trạng thái online/offline
+- ⚡ **Performance**: GIN indexes cho full-text search hiệu suất cao
 
 Qua đồ án này, nhóm đã:
-- Nắm vững cách sử dụng gRPC framework
-- Hiểu rõ về Unary và Streaming RPCs
-- Áp dụng concurrent programming với goroutines
+- Nắm vững cách sử dụng gRPC framework (Unary và Streaming RPCs)
+- Hiểu rõ về bidirectional streaming communication
+- Áp dụng concurrent programming với goroutines và channels
 - Xử lý client-server communication patterns
-- Implement persistent storage và logging
+- Implement persistent storage với PostgreSQL và GORM ORM
+- Áp dụng security best practices (bcrypt, prepared statements)
+- Tối ưu database với indexes và full-text search
 
 ---
 
 ## 10. PHỤ LỤC
 
-### 10.1. Cấu trúc data.json
+### 10.1. Database Schema (PostgreSQL)
 
-```json
-{
-  "users": [
-    {
-      "username": "alice",
-      "password": "123456"
-    },
-    {
-      "username": "bob",
-      "password": "123456"
-    }
-  ],
-  "groups": [
-    {
-      "name": "project-team",
-      "members": ["alice", "bob", "charlie"]
-    },
-    {
-      "name": "general",
-      "members": ["alice", "bob", "charlie", "diana", "eve"]
-    }
-  ],
-  "messages": [
-    {
-      "from": "alice",
-      "to": "bob",
-      "type": "private",
-      "text": "Hello Bob!",
-      "timestamp": 1730280000
-    },
-    {
-      "from": "alice",
-      "to": "project-team",
-      "type": "group",
-      "text": "Meeting at 3pm",
-      "timestamp": 1730280060
-    }
-  ]
-}
+**Bảng users**:
+```sql
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    username VARCHAR(50) UNIQUE NOT NULL,
+    password VARCHAR(255) NOT NULL,  -- bcrypt hashed
+    display_name VARCHAR(100),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    is_online BOOLEAN DEFAULT FALSE
+);
+
+-- Indexes for performance
+CREATE INDEX idx_users_is_online ON users(is_online);
+CREATE INDEX idx_users_username_trgm ON users USING gin(username gin_trgm_ops);
+CREATE INDEX idx_users_display_name_trgm ON users USING gin(display_name gin_trgm_ops);
+```
+
+**Bảng groups**:
+```sql
+CREATE TABLE groups (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) UNIQUE NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+**Bảng group_members** (Many-to-Many):
+```sql
+CREATE TABLE group_members (
+    id SERIAL PRIMARY KEY,
+    group_id INTEGER NOT NULL REFERENCES groups(id),
+    username VARCHAR(50) NOT NULL,
+    joined_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_group_members_group_id ON group_members(group_id);
+CREATE INDEX idx_group_members_username ON group_members(username);
+```
+
+**Bảng messages**:
+```sql
+CREATE TABLE messages (
+    id SERIAL PRIMARY KEY,
+    from_user VARCHAR(50) NOT NULL,
+    to_target VARCHAR(100) NOT NULL,  -- username or group name
+    message_type VARCHAR(20) NOT NULL,  -- 'private' or 'group'
+    text TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_messages_from_user ON messages(from_user);
+CREATE INDEX idx_messages_to_target ON messages(to_target);
+CREATE INDEX idx_messages_type ON messages(message_type);
+```
+
+**Sample data**:
+```sql
+-- Users (passwords are bcrypt hashed)
+INSERT INTO users (username, password, display_name, is_online) VALUES
+  ('alice', '$2a$10$...hashed...', 'alice', true),
+  ('bob', '$2a$10$...hashed...', 'bob', true);
+
+-- Groups
+INSERT INTO groups (name) VALUES ('project-team'), ('general');
+
+-- Group members
+INSERT INTO group_members (group_id, username) VALUES
+  (1, 'alice'), (1, 'bob'), (1, 'charlie'),
+  (2, 'alice'), (2, 'bob'), (2, 'charlie'), (2, 'diana'), (2, 'eve');
+
+-- Messages
+INSERT INTO messages (from_user, to_target, message_type, text) VALUES
+  ('alice', 'bob', 'private', 'Hello Bob!'),
+  ('alice', 'project-team', 'group', 'Meeting at 3pm');
 ```
 
 ### 10.2. Sample proto file
@@ -561,6 +730,8 @@ message JoinGroupResponse {
 
 message UserInfo {
   string username = 1;
+  string display_name = 2;
+  bool is_online = 3;
 }
 
 message ListUsersResponse {
@@ -579,13 +750,54 @@ message GetUserGroupsRequest {
 message GetUserGroupsResponse {
   repeated GroupInfo groups = 1;
 }
+
+message SearchUsersRequest {
+  string query = 1;
+  int32 limit = 2;  // optional, default 20
+}
+
+message SearchUsersResponse {
+  repeated UserInfo users = 1;
+}
 ```
 
-### 10.3. References
+### 10.3. Cấu hình Database
+
+**File**: `database/database.go` - Config struct
+
+```go
+type Config struct {
+    Host     string  // Default: "localhost"
+    Port     int     // Default: 5430
+    User     string  // Default: "chatapp"
+    Password string  // Default: "chatapp123"
+    DBName   string  // Default: "chatapp"
+    SSLMode  string  // Default: "disable"
+}
+```
+
+**Customize database config** (nếu cần):
+```go
+// Trong server/main.go
+cfg := database.Config{
+    Host:     "your-host",
+    Port:     5432,
+    User:     "your-user",
+    Password: "your-password",
+    DBName:   "your-dbname",
+    SSLMode:  "require",  // enable SSL nếu production
+}
+db, err := database.Connect(cfg)
+```
+
+### 10.4. References
 
 - [gRPC Official Documentation](https://grpc.io/docs/)
 - [Protocol Buffers Guide](https://protobuf.dev/)
 - [Go gRPC Tutorial](https://grpc.io/docs/languages/go/quickstart/)
 - [Effective Go](https://go.dev/doc/effective_go)
+- [GORM Documentation](https://gorm.io/docs/)
+- [PostgreSQL pg_trgm](https://www.postgresql.org/docs/current/pgtrgm.html)
+- [bcrypt Password Hashing](https://pkg.go.dev/golang.org/x/crypto/bcrypt)
 
 ---

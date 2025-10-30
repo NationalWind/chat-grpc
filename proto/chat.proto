@@ -17,6 +17,8 @@ message RegisterResponse {
 
 message UserInfo {
   string username = 1;
+  string display_name = 2;
+  bool is_online = 3;
 }
 
 message ListUsersResponse {
@@ -74,10 +76,20 @@ message GroupInfo {
   repeated string members = 2;
 }
 
+message SearchUsersRequest {
+  string query = 1;
+  int32 limit = 2; // optional, default 20
+}
+
+message SearchUsersResponse {
+  repeated UserInfo users = 1;
+}
+
 service ChatService {
   rpc Register(RegisterRequest) returns (RegisterResponse);
   rpc Login(LoginRequest) returns (LoginResponse);
   rpc ListUsers(Empty) returns (ListUsersResponse);
+  rpc SearchUsers(SearchUsersRequest) returns (SearchUsersResponse);
   rpc CreateGroup(CreateGroupRequest) returns (CreateGroupResponse);
   rpc JoinGroup(JoinGroupRequest) returns (JoinGroupResponse);
   rpc ChatStream(stream ChatMessage) returns (stream ChatMessage);

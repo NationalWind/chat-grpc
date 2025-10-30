@@ -3,3 +3,6 @@
 *.json
 
 database/data/
+
+
+.claude/

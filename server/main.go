@@ -83,8 +83,47 @@ func (s *chatServer) ListUsers(ctx context.Context, _ *pb.Empty) (*pb.ListUsersR
 
 	resp := &pb.ListUsersResponse{}
 	for name := range s.clients {
-		resp.Users = append(resp.Users, &pb.UserInfo{Username: name})
+		resp.Users = append(resp.Users, &pb.UserInfo{
+			Username:    name,
+			DisplayName: name,
+			IsOnline:    true,
+		})
 	}
+	return resp, nil
+}
+
+// SearchUsers - Tìm kiếm user với fuzzy search
+func (s *chatServer) SearchUsers(ctx context.Context, req *pb.SearchUsersRequest) (*pb.SearchUsersResponse, error) {
+	resp := &pb.SearchUsersResponse{}
+
+	// Validate query
+	if req.Query == "" {
+		return resp, nil
+	}
+
+	// Set default limit
+	limit := int(req.Limit)
+	if limit <= 0 {
+		limit = 20
+	}
+
+	// Tìm kiếm trong database với fuzzy search
+	users, err := db.SearchUsers(req.Query, limit)
+	if err != nil {
+		log.Printf("Error searching users for query '%s': %v", req.Query, err)
+		return resp, nil
+	}
+
+	// Chuyển đổi sang protobuf response
+	for _, user := range users {
+		resp.Users = append(resp.Users, &pb.UserInfo{
+			Username:    user.Username,
+			DisplayName: user.DisplayName,
+			IsOnline:    user.IsOnline,
+		})
+	}
+
+	log.Printf("Search query '%s' returned %d users", req.Query, len(resp.Users))
 	return resp, nil
 }
 
