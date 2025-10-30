@@ -1,0 +1,32 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: chatapp-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: chatapp
+      POSTGRES_PASSWORD: chatapp123
+      POSTGRES_DB: chatapp
+    ports:
+      - "5430:5432"
+    volumes:
+      - ./database/data:/var/lib/postgresql/data
+      - ./database/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chatapp -d chatapp"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - chatapp-network
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  chatapp-network:
+    driver: bridge

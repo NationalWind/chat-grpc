@@ -1,3 +1,5 @@
 *.exe
 *.log
 *.json
+
+database/data/

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -13,75 +12,18 @@ import (
 	"time"
 
 	pb "chat-grpc/proto"
+	"chat-grpc/database"
 
 	"google.golang.org/grpc"
 )
-
-type User struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-}
-
-type MessageLog struct {
-	From      string `json:"from"`
-	To        string `json:"to"`
-	Type      string `json:"type"`
-	Text      string `json:"text"`
-	Timestamp int64  `json:"timestamp"`
-}
-
-type Group struct {
-	Name    string   `json:"name"`
-	Members []string `json:"members"`
-}
-
-// Toàn bộ dữ liệu lưu ra file
-type ServerData struct {
-	Users    []User       `json:"users"`
-	Groups   []Group      `json:"groups"`
-	Messages []MessageLog `json:"messages"`
-}
 
 type clientSession struct {
 	username string
 	send     chan *pb.ChatMessage
 }
 
-var dataFile = "data.json"
-
-func loadData() *ServerData {
-	f, err := os.Open(dataFile)
-	if err != nil {
-		log.Println("No existing data file, starting fresh...")
-		return &ServerData{}
-	}
-	defer f.Close()
-	var data ServerData
-	if err := json.NewDecoder(f).Decode(&data); err != nil {
-		log.Println("Failed to parse data.json:", err)
-		return &ServerData{}
-	}
-	log.Printf("Loaded %d users, %d groups, %d messages", len(data.Users), len(data.Groups), len(data.Messages))
-	return &data
-}
-
-func saveData(data *ServerData) {
-	f, err := os.Create(dataFile)
-	if err != nil {
-		log.Println("saveData error:", err)
-		return
-	}
-	defer f.Close()
-	enc := json.NewEncoder(f)
-	enc.SetIndent("", "  ")
-	if err := enc.Encode(data); err != nil {
-		log.Println("encode error:", err)
-	}
-}
-
 var (
-	serverData *ServerData
-	dataMu     sync.RWMutex // Mutex để bảo vệ serverData
+	db *database.DB
 )
 
 // Server implementation
@@ -89,46 +31,33 @@ type chatServer struct {
 	pb.UnimplementedChatServiceServer
 	mu      sync.RWMutex
 	clients map[string]*clientSession
-	groups  map[string]map[string]bool // groupName -> set of usernames
 }
 
 func newServer() *chatServer {
-	srv := &chatServer{
+	return &chatServer{
 		clients: make(map[string]*clientSession),
-		groups:  make(map[string]map[string]bool),
 	}
-
-	// Load existing groups from serverData vào memory
-	dataMu.RLock()
-	for _, g := range serverData.Groups {
-		srv.groups[g.Name] = make(map[string]bool)
-		for _, member := range g.Members {
-			srv.groups[g.Name][member] = true
-		}
-	}
-	dataMu.RUnlock()
-
-	return srv
 }
 
 // Register unary
 func (s *chatServer) Register(ctx context.Context, req *pb.RegisterRequest) (*pb.RegisterResponse, error) {
-	dataMu.Lock()
-	defer dataMu.Unlock()
-
 	// Kiểm tra username đã tồn tại chưa
-	for _, u := range serverData.Users {
-		if u.Username == req.Username {
-			return &pb.RegisterResponse{Ok: false, Message: "username already exists"}, nil
-		}
+	exists, err := db.UserExists(req.Username)
+	if err != nil {
+		log.Printf("Error checking user existence: %v", err)
+		return &pb.RegisterResponse{Ok: false, Message: "database error"}, nil
 	}
 
-	// Tạo user mới
-	serverData.Users = append(serverData.Users, User{
-		Username: req.Username,
-		Password: req.Password,
-	})
-	saveData(serverData)
+	if exists {
+		return &pb.RegisterResponse{Ok: false, Message: "username already exists"}, nil
+	}
+
+	// Tạo user mới với password hash
+	_, err = db.CreateUser(req.Username, req.Password)
+	if err != nil {
+		log.Printf("Error creating user: %v", err)
+		return &pb.RegisterResponse{Ok: false, Message: "failed to create user"}, nil
+	}
 
 	log.Printf("User registered: %s", req.Username)
 	return &pb.RegisterResponse{Ok: true, Message: "registered successfully"}, nil
@@ -136,17 +65,15 @@ func (s *chatServer) Register(ctx context.Context, req *pb.RegisterRequest) (*pb
 
 // Login
 func (s *chatServer) Login(ctx context.Context, req *pb.LoginRequest) (*pb.LoginResponse, error) {
-	dataMu.RLock()
-	defer dataMu.RUnlock()
-
-	for _, u := range serverData.Users {
-		if u.Username == req.Username && u.Password == req.Password {
-			log.Printf("User logged in: %s", req.Username)
-			return &pb.LoginResponse{Ok: true, Message: "login successful"}, nil
-		}
+	// Authenticate user với bcrypt password check
+	_, err := db.AuthenticateUser(req.Username, req.Password)
+	if err != nil {
+		log.Printf("Failed login attempt for %s: %v", req.Username, err)
+		return &pb.LoginResponse{Ok: false, Message: "invalid credentials"}, nil
 	}
-	log.Printf("Failed login attempt: %s", req.Username)
-	return &pb.LoginResponse{Ok: false, Message: "invalid credentials"}, nil
+
+	log.Printf("User logged in: %s", req.Username)
+	return &pb.LoginResponse{Ok: true, Message: "login successful"}, nil
 }
 
 // List users (chỉ những user đang online)
@@ -163,25 +90,28 @@ func (s *chatServer) ListUsers(ctx context.Context, _ *pb.Empty) (*pb.ListUsersR
 
 // GetUserGroups - Lấy danh sách groups mà user đã join
 func (s *chatServer) GetUserGroups(ctx context.Context, req *pb.GetUserGroupsRequest) (*pb.GetUserGroupsResponse, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
 	resp := &pb.GetUserGroupsResponse{}
 
-	// Duyệt qua tất cả groups và tìm những group có user này
-	for groupName, members := range s.groups {
-		if members[req.Username] {
-			// Đếm số members trong group
-			memberList := make([]string, 0, len(members))
-			for member := range members {
-				memberList = append(memberList, member)
-			}
+	// Lấy groups từ database
+	groups, err := db.GetUserGroups(req.Username)
+	if err != nil {
+		log.Printf("Error getting user groups for %s: %v", req.Username, err)
+		return resp, nil
+	}
 
-			resp.Groups = append(resp.Groups, &pb.GroupInfo{
-				Name:    groupName,
-				Members: memberList,
-			})
+	// Chuyển đổi sang protobuf response
+	for _, group := range groups {
+		// Lấy members của group
+		members, err := db.GetGroupMembers(group.Name)
+		if err != nil {
+			log.Printf("Error getting group members for %s: %v", group.Name, err)
+			continue
 		}
+
+		resp.Groups = append(resp.Groups, &pb.GroupInfo{
+			Name:    group.Name,
+			Members: members,
+		})
 	}
 
 	return resp, nil
@@ -192,15 +122,16 @@ func (s *chatServer) CreateGroup(ctx context.Context, req *pb.CreateGroupRequest
 		return &pb.CreateGroupResponse{Ok: false, Message: "empty group name"}, nil
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	// Kiểm tra group đã tồn tại chưa
-	if _, ok := s.groups[req.GroupName]; ok {
-		return &pb.CreateGroupResponse{Ok: false, Message: "group already exists"}, nil
+	exists, err := db.GroupExists(req.GroupName)
+	if err != nil {
+		log.Printf("Error checking group existence: %v", err)
+		return &pb.CreateGroupResponse{Ok: false, Message: "database error"}, nil
 	}
 
-	s.groups[req.GroupName] = make(map[string]bool)
+	if exists {
+		return &pb.CreateGroupResponse{Ok: false, Message: "group already exists"}, nil
+	}
 
 	// Đảm bảo có ít nhất creator trong group
 	membersList := req.Members
@@ -208,64 +139,46 @@ func (s *chatServer) CreateGroup(ctx context.Context, req *pb.CreateGroupRequest
 		return &pb.CreateGroupResponse{Ok: false, Message: "creator must be included in members"}, nil
 	}
 
-	for _, m := range membersList {
-		s.groups[req.GroupName][m] = true
+	// Tạo group trong database
+	_, err = db.CreateGroup(req.GroupName)
+	if err != nil {
+		log.Printf("Error creating group: %v", err)
+		return &pb.CreateGroupResponse{Ok: false, Message: "failed to create group"}, nil
 	}
 
-	// Lưu vào persistent storage
-	dataMu.Lock()
-	serverData.Groups = append(serverData.Groups, Group{
-		Name:    req.GroupName,
-		Members: membersList,
-	})
-	saveData(serverData)
-	dataMu.Unlock()
+	// Thêm members vào group
+	for _, m := range membersList {
+		if err := db.AddGroupMember(req.GroupName, m); err != nil {
+			log.Printf("Error adding member %s to group %s: %v", m, req.GroupName, err)
+		}
+	}
 
 	log.Printf("Group created: %s with %d members (creator: %s)", req.GroupName, len(membersList), membersList[0])
 	return &pb.CreateGroupResponse{Ok: true, Message: "group created and you've joined"}, nil
 }
 
 func (s *chatServer) JoinGroup(ctx context.Context, req *pb.JoinGroupRequest) (*pb.JoinGroupResponse, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	// Kiểm tra group đã tồn tại chưa
+	exists, err := db.GroupExists(req.GroupName)
+	if err != nil {
+		log.Printf("Error checking group existence: %v", err)
+		return &pb.JoinGroupResponse{Ok: false, Message: "database error"}, nil
+	}
 
-	// Tạo group nếu chưa tồn tại (hoặc có thể return error)
-	if _, ok := s.groups[req.GroupName]; !ok {
-		s.groups[req.GroupName] = make(map[string]bool)
+	// Tạo group nếu chưa tồn tại
+	if !exists {
+		_, err := db.CreateGroup(req.GroupName)
+		if err != nil {
+			log.Printf("Error creating group: %v", err)
+			return &pb.JoinGroupResponse{Ok: false, Message: "failed to create group"}, nil
+		}
 	}
 
 	// Thêm user vào group
-	s.groups[req.GroupName][req.Username] = true
-
-	// Cập nhật persistent storage
-	dataMu.Lock()
-	found := false
-	for i, g := range serverData.Groups {
-		if g.Name == req.GroupName {
-			// Kiểm tra user đã có trong members chưa
-			memberExists := false
-			for _, m := range g.Members {
-				if m == req.Username {
-					memberExists = true
-					break
-				}
-			}
-			if !memberExists {
-				serverData.Groups[i].Members = append(serverData.Groups[i].Members, req.Username)
-			}
-			found = true
-			break
-		}
+	if err := db.AddGroupMember(req.GroupName, req.Username); err != nil {
+		log.Printf("Error adding user %s to group %s: %v", req.Username, req.GroupName, err)
+		return &pb.JoinGroupResponse{Ok: false, Message: "failed to join group"}, nil
 	}
-	// Nếu group chưa có trong persistent storage, tạo mới
-	if !found {
-		serverData.Groups = append(serverData.Groups, Group{
-			Name:    req.GroupName,
-			Members: []string{req.Username},
-		})
-	}
-	saveData(serverData)
-	dataMu.Unlock()
 
 	log.Printf("User %s joined group: %s", req.Username, req.GroupName)
 	return &pb.JoinGroupResponse{Ok: true, Message: "joined successfully"}, nil
@@ -297,6 +210,11 @@ func (s *chatServer) ChatStream(stream pb.ChatService_ChatStreamServer) error {
 	}
 	s.clients[username] = sess
 	s.mu.Unlock()
+
+	// Cập nhật user status thành online
+	if err := db.UpdateUserOnlineStatus(username, true); err != nil {
+		log.Printf("Error updating user online status: %v", err)
+	}
 
 	log.Printf("User connected: %s", username)
 
@@ -343,23 +261,22 @@ func (s *chatServer) removeClient(username string) {
 	if c, ok := s.clients[username]; ok {
 		close(c.send)
 		delete(s.clients, username)
+
+		// Cập nhật user status thành offline
+		if err := db.UpdateUserOnlineStatus(username, false); err != nil {
+			log.Printf("Error updating user offline status: %v", err)
+		}
+
 		log.Printf("User disconnected: %s", username)
 	}
 	// Note: Không xóa user khỏi groups khi disconnect, giữ membership
 }
 
 func (s *chatServer) handleIncoming(msg *pb.ChatMessage) {
-	// Lưu message vào persistent storage
-	dataMu.Lock()
-	serverData.Messages = append(serverData.Messages, MessageLog{
-		From:      msg.From,
-		To:        msg.To,
-		Type:      msg.Type,
-		Text:      msg.Text,
-		Timestamp: msg.Timestamp,
-	})
-	saveData(serverData)
-	dataMu.Unlock()
+	// Lưu message vào database
+	if err := db.SaveMessage(msg.From, msg.To, msg.Type, msg.Text); err != nil {
+		log.Printf("Error saving message: %v", err)
+	}
 
 	switch msg.Type {
 	case "private":
@@ -379,17 +296,21 @@ func (s *chatServer) handleIncoming(msg *pb.ChatMessage) {
 		}
 
 	case "group":
+		// Lấy members từ database
+		members, err := db.GetGroupMembers(msg.To)
+		if err != nil {
+			log.Printf("Error getting group members for %s: %v", msg.To, err)
+			return
+		}
+
 		s.mu.RLock()
-		members, ok := s.groups[msg.To]
 		clientsSnapshot := make(map[string]*clientSession)
-		if ok {
-			for member := range members {
-				if member == msg.From {
-					continue // Không gửi lại cho người gửi
-				}
-				if c, online := s.clients[member]; online {
-					clientsSnapshot[member] = c
-				}
+		for _, member := range members {
+			if member == msg.From {
+				continue // Không gửi lại cho người gửi
+			}
+			if c, online := s.clients[member]; online {
+				clientsSnapshot[member] = c
 			}
 		}
 		s.mu.RUnlock()
@@ -409,13 +330,7 @@ func (s *chatServer) handleIncoming(msg *pb.ChatMessage) {
 }
 
 func main() {
-	serverData = loadData()
-	defer func() {
-		dataMu.Lock()
-		saveData(serverData)
-		dataMu.Unlock()
-	}()
-
+	// Setup logging
 	f, err := os.OpenFile("server.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		log.Fatalf("cannot open log file: %v", err)
@@ -425,6 +340,17 @@ func main() {
 	log.SetOutput(io.MultiWriter(os.Stdout, f))
 	log.SetFlags(log.LstdFlags | log.Lmicroseconds)
 
+	// Connect to database
+	var dbErr error
+	db, dbErr = database.Connect(database.DefaultConfig())
+	if dbErr != nil {
+		log.Fatalf("failed to connect to database: %v", dbErr)
+	}
+	defer db.Close()
+
+	log.Println("Database connection established")
+
+	// Setup gRPC server
 	lis, err := net.Listen("tcp", ":50051")
 	if err != nil {
 		log.Fatalf("failed to listen: %v", err)
