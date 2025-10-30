@@ -637,6 +637,146 @@ func (x *ChatMessage) GetTimestamp() int64 {
 	return 0
 }
 
+type GetUserGroupsRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Username      string                 `protobuf:"bytes,1,opt,name=username,proto3" json:"username,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetUserGroupsRequest) Reset() {
+	*x = GetUserGroupsRequest{}
+	mi := &file_proto_chat_proto_msgTypes[12]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetUserGroupsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetUserGroupsRequest) ProtoMessage() {}
+
+func (x *GetUserGroupsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_chat_proto_msgTypes[12]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetUserGroupsRequest.ProtoReflect.Descriptor instead.
+func (*GetUserGroupsRequest) Descriptor() ([]byte, []int) {
+	return file_proto_chat_proto_rawDescGZIP(), []int{12}
+}
+
+func (x *GetUserGroupsRequest) GetUsername() string {
+	if x != nil {
+		return x.Username
+	}
+	return ""
+}
+
+type GetUserGroupsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Groups        []*GroupInfo           `protobuf:"bytes,1,rep,name=groups,proto3" json:"groups,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetUserGroupsResponse) Reset() {
+	*x = GetUserGroupsResponse{}
+	mi := &file_proto_chat_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetUserGroupsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetUserGroupsResponse) ProtoMessage() {}
+
+func (x *GetUserGroupsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_chat_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetUserGroupsResponse.ProtoReflect.Descriptor instead.
+func (*GetUserGroupsResponse) Descriptor() ([]byte, []int) {
+	return file_proto_chat_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *GetUserGroupsResponse) GetGroups() []*GroupInfo {
+	if x != nil {
+		return x.Groups
+	}
+	return nil
+}
+
+type GroupInfo struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	Members       []string               `protobuf:"bytes,2,rep,name=members,proto3" json:"members,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GroupInfo) Reset() {
+	*x = GroupInfo{}
+	mi := &file_proto_chat_proto_msgTypes[14]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GroupInfo) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GroupInfo) ProtoMessage() {}
+
+func (x *GroupInfo) ProtoReflect() protoreflect.Message {
+	mi := &file_proto_chat_proto_msgTypes[14]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GroupInfo.ProtoReflect.Descriptor instead.
+func (*GroupInfo) Descriptor() ([]byte, []int) {
+	return file_proto_chat_proto_rawDescGZIP(), []int{14}
+}
+
+func (x *GroupInfo) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *GroupInfo) GetMembers() []string {
+	if x != nil {
+		return x.Members
+	}
+	return nil
+}
+
 var File_proto_chat_proto protoreflect.FileDescriptor
 
 const file_proto_chat_proto_rawDesc = "" +
@@ -678,7 +818,14 @@ const file_proto_chat_proto_rawDesc = "" +
 	"\x02to\x18\x02 \x01(\tR\x02to\x12\x12\n" +
 	"\x04type\x18\x03 \x01(\tR\x04type\x12\x12\n" +
 	"\x04text\x18\x04 \x01(\tR\x04text\x12\x1c\n" +
-	"\ttimestamp\x18\x05 \x01(\x03R\ttimestamp2\xe7\x02\n" +
+	"\ttimestamp\x18\x05 \x01(\x03R\ttimestamp\"2\n" +
+	"\x14GetUserGroupsRequest\x12\x1a\n" +
+	"\busername\x18\x01 \x01(\tR\busername\"@\n" +
+	"\x15GetUserGroupsResponse\x12'\n" +
+	"\x06groups\x18\x01 \x03(\v2\x0f.chat.GroupInfoR\x06groups\"9\n" +
+	"\tGroupInfo\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
+	"\amembers\x18\x02 \x03(\tR\amembers2\xb1\x03\n" +
 	"\vChatService\x129\n" +
 	"\bRegister\x12\x15.chat.RegisterRequest\x1a\x16.chat.RegisterResponse\x120\n" +
 	"\x05Login\x12\x12.chat.LoginRequest\x1a\x13.chat.LoginResponse\x121\n" +
@@ -686,7 +833,8 @@ const file_proto_chat_proto_rawDesc = "" +
 	"\vCreateGroup\x12\x18.chat.CreateGroupRequest\x1a\x19.chat.CreateGroupResponse\x12<\n" +
 	"\tJoinGroup\x12\x16.chat.JoinGroupRequest\x1a\x17.chat.JoinGroupResponse\x126\n" +
 	"\n" +
-	"ChatStream\x12\x11.chat.ChatMessage\x1a\x11.chat.ChatMessage(\x010\x01B\x0eZ\f/proto;protob\x06proto3"
+	"ChatStream\x12\x11.chat.ChatMessage\x1a\x11.chat.ChatMessage(\x010\x01\x12H\n" +
+	"\rGetUserGroups\x12\x1a.chat.GetUserGroupsRequest\x1a\x1b.chat.GetUserGroupsResponseB\x0eZ\f/proto;protob\x06proto3"
 
 var (
 	file_proto_chat_proto_rawDescOnce sync.Once
@@ -700,40 +848,46 @@ func file_proto_chat_proto_rawDescGZIP() []byte {
 	return file_proto_chat_proto_rawDescData
 }
 
-var file_proto_chat_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
+var file_proto_chat_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
 var file_proto_chat_proto_goTypes = []any{
-	(*Empty)(nil),               // 0: chat.Empty
-	(*RegisterRequest)(nil),     // 1: chat.RegisterRequest
-	(*RegisterResponse)(nil),    // 2: chat.RegisterResponse
-	(*UserInfo)(nil),            // 3: chat.UserInfo
-	(*ListUsersResponse)(nil),   // 4: chat.ListUsersResponse
-	(*CreateGroupRequest)(nil),  // 5: chat.CreateGroupRequest
-	(*CreateGroupResponse)(nil), // 6: chat.CreateGroupResponse
-	(*JoinGroupRequest)(nil),    // 7: chat.JoinGroupRequest
-	(*JoinGroupResponse)(nil),   // 8: chat.JoinGroupResponse
-	(*LoginRequest)(nil),        // 9: chat.LoginRequest
-	(*LoginResponse)(nil),       // 10: chat.LoginResponse
-	(*ChatMessage)(nil),         // 11: chat.ChatMessage
+	(*Empty)(nil),                 // 0: chat.Empty
+	(*RegisterRequest)(nil),       // 1: chat.RegisterRequest
+	(*RegisterResponse)(nil),      // 2: chat.RegisterResponse
+	(*UserInfo)(nil),              // 3: chat.UserInfo
+	(*ListUsersResponse)(nil),     // 4: chat.ListUsersResponse
+	(*CreateGroupRequest)(nil),    // 5: chat.CreateGroupRequest
+	(*CreateGroupResponse)(nil),   // 6: chat.CreateGroupResponse
+	(*JoinGroupRequest)(nil),      // 7: chat.JoinGroupRequest
+	(*JoinGroupResponse)(nil),     // 8: chat.JoinGroupResponse
+	(*LoginRequest)(nil),          // 9: chat.LoginRequest
+	(*LoginResponse)(nil),         // 10: chat.LoginResponse
+	(*ChatMessage)(nil),           // 11: chat.ChatMessage
+	(*GetUserGroupsRequest)(nil),  // 12: chat.GetUserGroupsRequest
+	(*GetUserGroupsResponse)(nil), // 13: chat.GetUserGroupsResponse
+	(*GroupInfo)(nil),             // 14: chat.GroupInfo
 }
 var file_proto_chat_proto_depIdxs = []int32{
 	3,  // 0: chat.ListUsersResponse.users:type_name -> chat.UserInfo
-	1,  // 1: chat.ChatService.Register:input_type -> chat.RegisterRequest
-	9,  // 2: chat.ChatService.Login:input_type -> chat.LoginRequest
-	0,  // 3: chat.ChatService.ListUsers:input_type -> chat.Empty
-	5,  // 4: chat.ChatService.CreateGroup:input_type -> chat.CreateGroupRequest
-	7,  // 5: chat.ChatService.JoinGroup:input_type -> chat.JoinGroupRequest
-	11, // 6: chat.ChatService.ChatStream:input_type -> chat.ChatMessage
-	2,  // 7: chat.ChatService.Register:output_type -> chat.RegisterResponse
-	10, // 8: chat.ChatService.Login:output_type -> chat.LoginResponse
-	4,  // 9: chat.ChatService.ListUsers:output_type -> chat.ListUsersResponse
-	6,  // 10: chat.ChatService.CreateGroup:output_type -> chat.CreateGroupResponse
-	8,  // 11: chat.ChatService.JoinGroup:output_type -> chat.JoinGroupResponse
-	11, // 12: chat.ChatService.ChatStream:output_type -> chat.ChatMessage
-	7,  // [7:13] is the sub-list for method output_type
-	1,  // [1:7] is the sub-list for method input_type
-	1,  // [1:1] is the sub-list for extension type_name
-	1,  // [1:1] is the sub-list for extension extendee
-	0,  // [0:1] is the sub-list for field type_name
+	14, // 1: chat.GetUserGroupsResponse.groups:type_name -> chat.GroupInfo
+	1,  // 2: chat.ChatService.Register:input_type -> chat.RegisterRequest
+	9,  // 3: chat.ChatService.Login:input_type -> chat.LoginRequest
+	0,  // 4: chat.ChatService.ListUsers:input_type -> chat.Empty
+	5,  // 5: chat.ChatService.CreateGroup:input_type -> chat.CreateGroupRequest
+	7,  // 6: chat.ChatService.JoinGroup:input_type -> chat.JoinGroupRequest
+	11, // 7: chat.ChatService.ChatStream:input_type -> chat.ChatMessage
+	12, // 8: chat.ChatService.GetUserGroups:input_type -> chat.GetUserGroupsRequest
+	2,  // 9: chat.ChatService.Register:output_type -> chat.RegisterResponse
+	10, // 10: chat.ChatService.Login:output_type -> chat.LoginResponse
+	4,  // 11: chat.ChatService.ListUsers:output_type -> chat.ListUsersResponse
+	6,  // 12: chat.ChatService.CreateGroup:output_type -> chat.CreateGroupResponse
+	8,  // 13: chat.ChatService.JoinGroup:output_type -> chat.JoinGroupResponse
+	11, // 14: chat.ChatService.ChatStream:output_type -> chat.ChatMessage
+	13, // 15: chat.ChatService.GetUserGroups:output_type -> chat.GetUserGroupsResponse
+	9,  // [9:16] is the sub-list for method output_type
+	2,  // [2:9] is the sub-list for method input_type
+	2,  // [2:2] is the sub-list for extension type_name
+	2,  // [2:2] is the sub-list for extension extendee
+	0,  // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_proto_chat_proto_init() }
@@ -747,7 +901,7 @@ func file_proto_chat_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_chat_proto_rawDesc), len(file_proto_chat_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   12,
+			NumMessages:   15,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

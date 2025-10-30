@@ -19,12 +19,13 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ChatService_Register_FullMethodName    = "/chat.ChatService/Register"
-	ChatService_Login_FullMethodName       = "/chat.ChatService/Login"
-	ChatService_ListUsers_FullMethodName   = "/chat.ChatService/ListUsers"
-	ChatService_CreateGroup_FullMethodName = "/chat.ChatService/CreateGroup"
-	ChatService_JoinGroup_FullMethodName   = "/chat.ChatService/JoinGroup"
-	ChatService_ChatStream_FullMethodName  = "/chat.ChatService/ChatStream"
+	ChatService_Register_FullMethodName      = "/chat.ChatService/Register"
+	ChatService_Login_FullMethodName         = "/chat.ChatService/Login"
+	ChatService_ListUsers_FullMethodName     = "/chat.ChatService/ListUsers"
+	ChatService_CreateGroup_FullMethodName   = "/chat.ChatService/CreateGroup"
+	ChatService_JoinGroup_FullMethodName     = "/chat.ChatService/JoinGroup"
+	ChatService_ChatStream_FullMethodName    = "/chat.ChatService/ChatStream"
+	ChatService_GetUserGroups_FullMethodName = "/chat.ChatService/GetUserGroups"
 )
 
 // ChatServiceClient is the client API for ChatService service.
@@ -37,6 +38,7 @@ type ChatServiceClient interface {
 	CreateGroup(ctx context.Context, in *CreateGroupRequest, opts ...grpc.CallOption) (*CreateGroupResponse, error)
 	JoinGroup(ctx context.Context, in *JoinGroupRequest, opts ...grpc.CallOption) (*JoinGroupResponse, error)
 	ChatStream(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ChatMessage, ChatMessage], error)
+	GetUserGroups(ctx context.Context, in *GetUserGroupsRequest, opts ...grpc.CallOption) (*GetUserGroupsResponse, error)
 }
 
 type chatServiceClient struct {
@@ -110,6 +112,16 @@ func (c *chatServiceClient) ChatStream(ctx context.Context, opts ...grpc.CallOpt
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type ChatService_ChatStreamClient = grpc.BidiStreamingClient[ChatMessage, ChatMessage]
 
+func (c *chatServiceClient) GetUserGroups(ctx context.Context, in *GetUserGroupsRequest, opts ...grpc.CallOption) (*GetUserGroupsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetUserGroupsResponse)
+	err := c.cc.Invoke(ctx, ChatService_GetUserGroups_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // ChatServiceServer is the server API for ChatService service.
 // All implementations must embed UnimplementedChatServiceServer
 // for forward compatibility.
@@ -120,6 +132,7 @@ type ChatServiceServer interface {
 	CreateGroup(context.Context, *CreateGroupRequest) (*CreateGroupResponse, error)
 	JoinGroup(context.Context, *JoinGroupRequest) (*JoinGroupResponse, error)
 	ChatStream(grpc.BidiStreamingServer[ChatMessage, ChatMessage]) error
+	GetUserGroups(context.Context, *GetUserGroupsRequest) (*GetUserGroupsResponse, error)
 	mustEmbedUnimplementedChatServiceServer()
 }
 
@@ -147,6 +160,9 @@ func (UnimplementedChatServiceServer) JoinGroup(context.Context, *JoinGroupReque
 }
 func (UnimplementedChatServiceServer) ChatStream(grpc.BidiStreamingServer[ChatMessage, ChatMessage]) error {
 	return status.Errorf(codes.Unimplemented, "method ChatStream not implemented")
+}
+func (UnimplementedChatServiceServer) GetUserGroups(context.Context, *GetUserGroupsRequest) (*GetUserGroupsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetUserGroups not implemented")
 }
 func (UnimplementedChatServiceServer) mustEmbedUnimplementedChatServiceServer() {}
 func (UnimplementedChatServiceServer) testEmbeddedByValue()                     {}
@@ -266,6 +282,24 @@ func _ChatService_ChatStream_Handler(srv interface{}, stream grpc.ServerStream) 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type ChatService_ChatStreamServer = grpc.BidiStreamingServer[ChatMessage, ChatMessage]
 
+func _ChatService_GetUserGroups_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetUserGroupsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ChatServiceServer).GetUserGroups(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ChatService_GetUserGroups_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ChatServiceServer).GetUserGroups(ctx, req.(*GetUserGroupsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // ChatService_ServiceDesc is the grpc.ServiceDesc for ChatService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -292,6 +326,10 @@ var ChatService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "JoinGroup",
 			Handler:    _ChatService_JoinGroup_Handler,
+		},
+		{
+			MethodName: "GetUserGroups",
+			Handler:    _ChatService_GetUserGroups_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

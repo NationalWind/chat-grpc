@@ -161,6 +161,32 @@ func (s *chatServer) ListUsers(ctx context.Context, _ *pb.Empty) (*pb.ListUsersR
 	return resp, nil
 }
 
+// GetUserGroups - Lấy danh sách groups mà user đã join
+func (s *chatServer) GetUserGroups(ctx context.Context, req *pb.GetUserGroupsRequest) (*pb.GetUserGroupsResponse, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	resp := &pb.GetUserGroupsResponse{}
+
+	// Duyệt qua tất cả groups và tìm những group có user này
+	for groupName, members := range s.groups {
+		if members[req.Username] {
+			// Đếm số members trong group
+			memberList := make([]string, 0, len(members))
+			for member := range members {
+				memberList = append(memberList, member)
+			}
+
+			resp.Groups = append(resp.Groups, &pb.GroupInfo{
+				Name:    groupName,
+				Members: memberList,
+			})
+		}
+	}
+
+	return resp, nil
+}
+
 func (s *chatServer) CreateGroup(ctx context.Context, req *pb.CreateGroupRequest) (*pb.CreateGroupResponse, error) {
 	if req.GroupName == "" {
 		return &pb.CreateGroupResponse{Ok: false, Message: "empty group name"}, nil
@@ -174,9 +200,15 @@ func (s *chatServer) CreateGroup(ctx context.Context, req *pb.CreateGroupRequest
 		return &pb.CreateGroupResponse{Ok: false, Message: "group already exists"}, nil
 	}
 
-	// Tạo group trong memory
 	s.groups[req.GroupName] = make(map[string]bool)
-	for _, m := range req.Members {
+
+	// Đảm bảo có ít nhất creator trong group
+	membersList := req.Members
+	if len(membersList) == 0 {
+		return &pb.CreateGroupResponse{Ok: false, Message: "creator must be included in members"}, nil
+	}
+
+	for _, m := range membersList {
 		s.groups[req.GroupName][m] = true
 	}
 
@@ -184,13 +216,13 @@ func (s *chatServer) CreateGroup(ctx context.Context, req *pb.CreateGroupRequest
 	dataMu.Lock()
 	serverData.Groups = append(serverData.Groups, Group{
 		Name:    req.GroupName,
-		Members: req.Members,
+		Members: membersList,
 	})
 	saveData(serverData)
 	dataMu.Unlock()
 
-	log.Printf("Group created: %s with %d members", req.GroupName, len(req.Members))
-	return &pb.CreateGroupResponse{Ok: true, Message: "group created"}, nil
+	log.Printf("Group created: %s with %d members (creator: %s)", req.GroupName, len(membersList), membersList[0])
+	return &pb.CreateGroupResponse{Ok: true, Message: "group created and you've joined"}, nil
 }
 
 func (s *chatServer) JoinGroup(ctx context.Context, req *pb.JoinGroupRequest) (*pb.JoinGroupResponse, error) {

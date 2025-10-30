@@ -61,6 +61,19 @@ message ChatMessage {
   int64 timestamp = 5;
 }
 
+message GetUserGroupsRequest {
+  string username = 1;
+}
+
+message GetUserGroupsResponse {
+  repeated GroupInfo groups = 1;
+}
+
+message GroupInfo {
+  string name = 1;
+  repeated string members = 2;
+}
+
 service ChatService {
   rpc Register(RegisterRequest) returns (RegisterResponse);
   rpc Login(LoginRequest) returns (LoginResponse);
@@ -68,4 +81,5 @@ service ChatService {
   rpc CreateGroup(CreateGroupRequest) returns (CreateGroupResponse);
   rpc JoinGroup(JoinGroupRequest) returns (JoinGroupResponse);
   rpc ChatStream(stream ChatMessage) returns (stream ChatMessage);
+  rpc GetUserGroups(GetUserGroupsRequest) returns (GetUserGroupsResponse);
 }
