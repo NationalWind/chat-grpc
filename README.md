@@ -553,20 +553,20 @@ LIMIT ?
 ### 9.2. Đánh giá
 
 Đồ án đã hoàn thành đầy đủ các yêu cầu:
-- ✅ Sử dụng gRPC cho inter-process communication
-- ✅ Implement đầy đủ tính năng chat riêng và chat nhóm
-- ✅ Hỗ trợ 5+ concurrent users
-- ✅ Có persistent storage với PostgreSQL database
-- ✅ Có log files chi tiết (optional, có thể bật/tắt)
-- ✅ Code clean, dễ maintain với separation of concerns
+- Sử dụng gRPC cho inter-process communication
+- Implement đầy đủ tính năng chat riêng và chat nhóm
+- Hỗ trợ 5+ concurrent users
+- Có persistent storage với PostgreSQL database
+- Có log files chi tiết (optional, có thể bật/tắt)
+- Code clean, dễ maintain với separation of concerns
 
 **Điểm nổi bật**:
-- 🔐 **Security**: Sử dụng bcrypt để hash password với cost factor = 10
-- 🔍 **Advanced Search**: Fuzzy search với PostgreSQL pg_trgm extension
-- 💾 **Database Design**: Schema được normalize với proper indexes
-- 📊 **ORM Integration**: Sử dụng GORM với auto-migration
-- 🟢 **Real-time Status**: Theo dõi trạng thái online/offline
-- ⚡ **Performance**: GIN indexes cho full-text search hiệu suất cao
+- **Security**: Sử dụng bcrypt để hash password với cost factor = 10
+- **Advanced Search**: Fuzzy search với PostgreSQL pg_trgm extension
+- **Database Design**: Schema được normalize với proper indexes
+- **ORM Integration**: Sử dụng GORM với auto-migration
+- **Real-time Status**: Theo dõi trạng thái online/offline
+- **Performance**: GIN indexes cho full-text search hiệu suất cao
 
 Qua đồ án này, nhóm đã:
 - Nắm vững cách sử dụng gRPC framework (Unary và Streaming RPCs)
@@ -588,7 +588,7 @@ Qua đồ án này, nhóm đã:
 CREATE TABLE users (
     id SERIAL PRIMARY KEY,
     username VARCHAR(50) UNIQUE NOT NULL,
-    password VARCHAR(255) NOT NULL,  -- bcrypt hashed
+ password VARCHAR(255) NOT NULL,  -- bcrypt hashed
     display_name VARCHAR(100),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
